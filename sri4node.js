@@ -36,6 +36,9 @@ var resources;
 var logsql;
 var logdebug;
 var postgres;
+var app;
+var emt;
+
 
 function debug(x) {
   'use strict';
@@ -590,10 +593,15 @@ function getDocs(req, resp) {
     resp.locals.path = req._parsedUrl.pathname;
     resp.render('resource', {resource: mapping, queryUtils: exports.queryUtils});
   } else if (type === '/docs') {
-    resp.render('index', {config: configuration});
+    resp.render('index', {
+      config: {
+        resources: resources,
+        description: configuration.description
+      }
+    });
   } else {
     resp.status(404).send('Not Found');
-  }
+  }{}
 }
 
 function getSQLFromListResource(path, parameters, database, query) {
@@ -1211,25 +1219,25 @@ function registerCustomRoutes(mapping, app, config, secureCacheFn) {
 
 /* express.js application, configuration for roa4node */
 exports = module.exports = {
-  configure: function (app, pg, config) {
+  configure: function (expressApp, pg, config) {
     'use strict';
-    var executeExpansion = require('./js/expand.js')(config.logdebug, prepare, pgExec, executeAfterReadFunctions,
-      config.identify);
-    var configIndex, mapping, url;
-    var defaultlimit;
-    var maxlimit;
-    var secureCacheFn;
     var i;
-    var secureCacheFns = [];
     var msg;
     var database;
     var d = Q.defer();
 
+    if(configuration) console.warn('[sri4node] Configuration already set, your configuration will be overwritten.');
+
     configuration = config;
-    resources = config.resources;
     logsql = config.logsql;
     logdebug = config.logdebug;
     postgres = pg;
+    app = expressApp;
+
+    if (!configuration.logmiddleware) {
+      console.log("setting logmiddleware");
+      configuration.logmiddleware = config.logmiddleware;
+    }
 
     if (configuration.forceSecureSockets) {
       // All URLs force SSL and allow cross origin access.
@@ -1244,9 +1252,7 @@ exports = module.exports = {
     app.set('view engine', 'jade');
     app.set('views', __dirname + '/js/docs');
 
-    var emt;
-
-    if (config.logmiddleware) {
+    if (configuration.logmiddleware) {
       process.env.TIMER = true; //eslint-disable-line
       emt = require('express-middleware-timer');
       // init timer
@@ -1299,8 +1305,7 @@ exports = module.exports = {
       throw new Error(msg);
     }
 
-    url = '/me';
-    app.get(url, logRequests, config.authenticate, function (req, resp) {
+    app.get('/me', logRequests, config.authenticate, function (req, resp) {
       pgConnect(postgres, configuration).then(function (db) {
         database = db;
       }).then(function () {
@@ -1345,12 +1350,47 @@ exports = module.exports = {
         }
 
       });
+
       resp.send(resourcesToSend);
+
     });
+
+    if (config.resources) {
+      console.warn('[sri4node] Please update: resources should be set using sri4node.addResouces(resources) instead of in configure.');
+      exports.addResources(config.resources)
+        .then(function(){
+          d.resolve();
+        }).fail(function(data){
+          d.reject(data);
+        });
+    }else{
+      d.resolve();
+    }
+
+    return d.promise;
+  },
+
+  addResources: function (resourcesConfig) {
+    var d = Q.defer();
+    var executeExpansion = require('./js/expand.js')(configuration.logdebug, prepare, pgExec, executeAfterReadFunctions,
+      configuration.identify);
+    var configIndex, mapping, url;
+    var defaultlimit;
+    var maxlimit;
+    var secureCacheFn;
+    var secureCacheFns = [];
+
+    if (resources) {
+      resourcesConfig.forEach(function(resource){
+        resources.push(resource);
+      });
+    } else {
+      resources = resourcesConfig;
+    }
 
     pgConnect(postgres, configuration).then(function (db) {
       database = db;
-      return informationSchema(database, configuration);
+      return informationSchema(database, resources);
     }).then(function (information) {
 
       for (configIndex = 0; configIndex < resources.length; configIndex++) {
@@ -1377,23 +1417,23 @@ exports = module.exports = {
           maxlimit = mapping.maxlimit || MAX_LIMIT;
           defaultlimit = mapping.defaultlimit || DEFAULT_LIMIT;
           // app.get - list resource
-          app.get(url, emt.instrument(logRequests), emt.instrument(config.authenticate, 'authenticate'),
+          app.get(url, emt.instrument(logRequests), emt.instrument(configuration.authenticate, 'authenticate'),
             emt.instrument(secureCacheFn, 'secureCache'), emt.instrument(compression()),
             emt.instrument(getListResource(executeExpansion, defaultlimit, maxlimit), 'list'));
 
           // register single resource
           url = mapping.type + '/:key';
           app.route(url)
-            .get(logRequests, emt.instrument(config.authenticate, 'authenticate'),
-              emt.instrument(secureCacheFn, 'secureCache'), emt.instrument(compression()),
-              emt.instrument(getRegularResource(executeExpansion), 'getResource'))
-            .put(logRequests, config.authenticate, secureCacheFn, createOrUpdate)
-            .delete(logRequests, config.authenticate, secureCacheFn, deleteResource); // app.delete
+            .get(logRequests, emt.instrument(configuration.authenticate, 'authenticate'),
+            emt.instrument(secureCacheFn, 'secureCache'), emt.instrument(compression()),
+            emt.instrument(getRegularResource(executeExpansion), 'getResource'))
+            .put(logRequests, configuration.authenticate, secureCacheFn, createOrUpdate)
+            .delete(logRequests, configuration.authenticate, secureCacheFn, deleteResource); // app.delete
 
           // register custom routes (if any)
 
           if (mapping.customroutes && mapping.customroutes instanceof Array) {
-            registerCustomRoutes(mapping, app, config, secureCacheFn);
+            registerCustomRoutes(mapping, app, configuration, secureCacheFn);
           }
         } catch (err) {
           cl('\n\nSRI4NODE FAILURE: \n');
@@ -1404,21 +1444,22 @@ exports = module.exports = {
       } // for all mappings.
 
     })
-    .then(function () {
-      url = '/batch';
-      app.put(url, logRequests, config.authenticate, handleBatchOperations(secureCacheFns), batchOperation);
-      d.resolve();
-    })
-    .fail(function (err) {
-      cl('\n\nSRI4NODE FAILURE: \n');
-      cl(err.stack);
-      d.reject(err);
-    })
-    .finally(function () {
-      database.done();
-    });
+      .then(function () {
+        url = '/batch';
+        app.put(url, logRequests, configuration.authenticate, handleBatchOperations(secureCacheFns), batchOperation);
+        d.resolve();
+      })
+      .fail(function (err) {
+        cl('\n\nSRI4NODE FAILURE: \n');
+        cl(err.stack);
+        d.reject(err);
+      })
+      .finally(function () {
+        database.done();
+      });
 
     return d.promise;
+
   },
 
   utils: {
