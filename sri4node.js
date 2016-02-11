@@ -1527,6 +1527,8 @@ exports = module.exports = {
   },
 
   addResources: function (resourcesConfig) {
+    if(!configuration) console.warn('[sri4node] No configuration is set!');
+
     var d = Q.defer();
     var executeExpansion = require('./js/expand.js')(configuration.logdebug, prepare, pgExec, executeAfterReadFunctions,
       configuration.identify);
