@@ -681,7 +681,7 @@ function getDocs(req, resp) {
     });
   } else {
     resp.status(404).send('Not Found');
-  }{}
+  }
 }
 
 function getSQLFromListResource(path, parameters, count, database, query) {
@@ -1380,7 +1380,9 @@ exports = module.exports = {
     var relationFilters;
     var d = Q.defer();
 
-    if(configuration) console.warn('[sri4node] Configuration already set, your configuration will be overwritten.');
+    if (configuration) {
+      console.warn('[sri4node] Configuration already set, your configuration will be overwritten.');
+    }
 
     configuration = config;
     logsql = config.logsql;
@@ -1389,7 +1391,6 @@ exports = module.exports = {
     app = expressApp;
 
     if (!configuration.logmiddleware) {
-      console.log("setting logmiddleware");
       configuration.logmiddleware = config.logmiddleware;
     }
 
@@ -1527,31 +1528,37 @@ exports = module.exports = {
   },
 
   addResources: function (resourcesConfig) {
-    if(!configuration) console.warn('[sri4node] No configuration is set!');
-
     var d = Q.defer();
-    var executeExpansion = require('./js/expand.js')(configuration.logdebug, prepare, pgExec, executeAfterReadFunctions,
-      configuration.identify);
-    var configIndex, mapping, url;
-    var defaultlimit;
-    var maxlimit;
-    var secureCacheFn;
-    var secureCacheFns = [];
 
-    if (resources) {
-      resourcesConfig.forEach(function(resource){
-        resources.push(resource);
-      });
+    if (!configuration) {
+      console.warn('[sri4node] No configuration is set!');
+      d.reject();
     } else {
-      resources = resourcesConfig;
-    }
 
-    pgConnect(postgres, configuration).then(function (db) {
-      database = db;
-      return informationSchema(database, resources);
-    }).then(function (information) {
+      var executeExpansion = require('./js/expand.js')(configuration.logdebug, prepare, pgExec, executeAfterReadFunctions,
+        configuration.identify);
+      var database;
+      var configIndex, mapping, url;
+      var defaultlimit;
+      var maxlimit;
+      var secureCacheFn;
+      var secureCacheFns = [];
+
+      if (resources) {
+        resourcesConfig.forEach(function (resource) {
+          resources.push(resource);
+        });
+      } else {
+        resources = resourcesConfig;
+      }
+
+      pgConnect(postgres, configuration).then(function (db) {
+        database = db;
+        return informationSchema(database, resources);
+      }).then(function (information) {
 
         for (configIndex = 0; configIndex < resources.length; configIndex++) {
+
           mapping = resources[configIndex];
 
           try {
@@ -1586,7 +1593,6 @@ exports = module.exports = {
 
             // register single resource
             url = mapping.type + '/:key';
-
             app.route(url)
               .get(logRequests, emt.instrument(authentication, 'authenticate'),
                 emt.instrument(secureCacheFn, 'secureCache'), emt.instrument(compression()),
@@ -1597,7 +1603,6 @@ exports = module.exports = {
             // validation route
             url = mapping.type + '/validate';
             app.post(url, logRequests, config.authenticate, secureCacheFn, validate);
-
 
             // register custom routes (if any)
 
@@ -1626,22 +1631,23 @@ exports = module.exports = {
             d.reject(err);
           }
 
-      } // for all mappings.
+        } // for all mappings.
 
-    })
-      .then(function () {
-        url = '/batch';
-        app.put(url, logRequests, configuration.authenticate, handleBatchOperations(secureCacheFns), batchOperation);
-        d.resolve();
       })
-      .fail(function (err) {
-        cl('\n\nSRI4NODE FAILURE: \n');
-        cl(err.stack);
-        d.reject(err);
-      })
-      .finally(function () {
-        database.done();
-      });
+        .then(function () {
+          url = '/batch';
+          app.put(url, logRequests, configuration.authenticate, handleBatchOperations(secureCacheFns), batchOperation);
+          d.resolve();
+        })
+        .fail(function (err) {
+          cl('\n\nSRI4NODE FAILURE: \n');
+          cl(err.stack);
+          d.reject(err);
+        })
+        .finally(function () {
+          database.done();
+        });
+    }
 
     return d.promise;
 
