@@ -1584,7 +1584,7 @@ exports = module.exports = {
             maxlimit = mapping.maxlimit || MAX_LIMIT;
             defaultlimit = mapping.defaultlimit || DEFAULT_LIMIT;
 
-            authentication = config.checkAuthentication ? config.checkAuthentication : config.authenticate;
+            authentication = configuration.checkAuthentication ? configuration.checkAuthentication : configuration.authenticate;
 
             // app.get - list resource
             app.get(url, emt.instrument(logRequests), emt.instrument(authentication, 'authenticate'),
@@ -1597,17 +1597,17 @@ exports = module.exports = {
               .get(logRequests, emt.instrument(authentication, 'authenticate'),
                 emt.instrument(secureCacheFn, 'secureCache'), emt.instrument(compression()),
                 emt.instrument(getRegularResource(executeExpansion), 'getResource'))
-              .put(logRequests, config.authenticate, secureCacheFn, createOrUpdate)
-              .delete(logRequests, config.authenticate, secureCacheFn, deleteResource); // app.delete
+              .put(logRequests, configuration.authenticate, secureCacheFn, createOrUpdate)
+              .delete(logRequests, configuration.authenticate, secureCacheFn, deleteResource); // app.delete
 
             // validation route
             url = mapping.type + '/validate';
-            app.post(url, logRequests, config.authenticate, secureCacheFn, validate);
+            app.post(url, logRequests, configuration.authenticate, secureCacheFn, validate);
 
             // register custom routes (if any)
 
             if (mapping.customroutes && mapping.customroutes instanceof Array) {
-              registerCustomRoutes(mapping, app, config, secureCacheFn);
+              registerCustomRoutes(mapping, app, configuration, secureCacheFn);
             }
 
             // append relation filters if auto-detected a relation resource
